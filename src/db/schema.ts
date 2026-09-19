@@ -9,7 +9,7 @@ import {
   index,
 } from 'drizzle-orm/pg-core';
 
-const transferStatusEnum = pgEnum('transfer_status', [
+export const transferStatusEnum = pgEnum('transfer_status', [
   'queued',
   'sent',
   'confirmed',

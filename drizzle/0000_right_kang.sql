@@ -1,3 +1,4 @@
+CREATE TYPE "public"."transfer_status" AS ENUM('queued', 'sent', 'confirmed', 'failed');--> statement-breakpoint
 CREATE TABLE "transfers" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"idempotency_key" varchar(255) NOT NULL,
@@ -9,5 +10,4 @@ CREATE TABLE "transfers" (
 	CONSTRAINT "transfers_idempotencyKey_unique" UNIQUE("idempotency_key")
 );
 --> statement-breakpoint
-DROP TABLE "users" CASCADE;--> statement-breakpoint
 CREATE INDEX "idx_transfers_status_created_at" ON "transfers" USING btree ("status","created_at");
