@@ -8,6 +8,13 @@
       "when": 1789717650975,
       "tag": "0000_outgoing_nitro",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1789802679661,
+      "tag": "0001_mature_master_chief",
+      "breakpoints": true
     }
   ]
 }
