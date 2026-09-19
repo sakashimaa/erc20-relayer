@@ -1,8 +1,8 @@
 import http from 'http';
-import { app as expressApp } from './app';
-import logger from '../lib/logger';
-import { queryClient } from '../db';
-import env from '../config/env';
+import { app as expressApp } from './app.js';
+import logger from '../lib/logger.js';
+import { queryClient } from '../db/index.js';
+import env from '../config/env.js';
 
 const server = http.createServer(expressApp);
 
