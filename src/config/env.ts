@@ -29,9 +29,11 @@ if (!parsed.success) {
       prefix: 'env validation error',
     }),
   );
+
+  process.exit(1);
 }
 
-const env = parsed.data!;
+const env = parsed.data;
 
 export { env };
 export default env;

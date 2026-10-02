@@ -34,3 +34,5 @@ export const transfers = pgTable(
   },
   (t) => [index('idx_transfers_status_created_at').on(t.status, t.createdAt)],
 );
+
+export type SelectTransfer = typeof transfers.$inferSelect;
