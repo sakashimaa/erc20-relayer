@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import { isAddress } from 'viem';
 import z from 'zod';
 import { fromError } from 'zod-validation-error';
 
@@ -12,6 +13,10 @@ const envSchema = z
     POSTGRES_HOST: z.string().default('localhost'),
     POSTGRES_PORT: z.coerce.number().default(5433),
     HTTP_PORT: z.coerce.number().positive().default(3000),
+    TOKEN_ADDRESS: z
+      .string()
+      .refine(isAddress, 'invalid token address')
+      .transform((v) => v.toLowerCase()),
   })
   .transform((e) => ({
     ...e,

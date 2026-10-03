@@ -20,8 +20,10 @@ app.use((_, __, next) => next(new NotFoundError('route not found')));
 
 app.use((err: unknown, req: Request, res: Response, _: NextFunction) => {
   if (err instanceof HttpError) {
-    logger.warn({ err }, 'http error occured');
-    return res.status(err.httpCode).json({ message: err.message, code: err.code });
+    logger.warn({ status: err.httpCode, code: err.code }, 'http error occured');
+    return res
+      .status(err.httpCode)
+      .json({ message: err.message, code: err.code, errors: err.errors });
   }
 
   if (

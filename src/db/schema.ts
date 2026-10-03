@@ -23,6 +23,7 @@ export const transfers = pgTable(
 
     idempotencyKey: varchar({ length: 255 }).unique().notNull(),
     toAddress: text().notNull(),
+    tokenAddress: text().notNull(),
     amount: numeric({ precision: 78, scale: 0 }).notNull(),
     status: transferStatusEnum().notNull().default('queued'),
 
@@ -36,3 +37,4 @@ export const transfers = pgTable(
 );
 
 export type SelectTransfer = typeof transfers.$inferSelect;
+export type InsertTransfer = typeof transfers.$inferInsert;
