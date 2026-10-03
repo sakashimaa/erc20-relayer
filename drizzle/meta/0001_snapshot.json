@@ -1,6 +1,6 @@
 {
-  "id": "2a4e960d-4fae-4477-b90a-5d14b050dfa2",
-  "prevId": "41a339b4-df77-4dd8-886c-8ed4e35fd5d9",
+  "id": "bdb2a9b4-3be2-459e-910a-665cd5eabbb0",
+  "prevId": "d495af3e-b80a-44e0-9551-f88654c9dd01",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -23,6 +23,12 @@
         },
         "to_address": {
           "name": "to_address",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "token_address": {
+          "name": "token_address",
           "type": "text",
           "primaryKey": false,
           "notNull": true
@@ -95,7 +101,18 @@
       "isRLSEnabled": false
     }
   },
-  "enums": {},
+  "enums": {
+    "public.transfer_status": {
+      "name": "transfer_status",
+      "schema": "public",
+      "values": [
+        "queued",
+        "sent",
+        "confirmed",
+        "failed"
+      ]
+    }
+  },
   "schemas": {},
   "sequences": {},
   "roles": {},

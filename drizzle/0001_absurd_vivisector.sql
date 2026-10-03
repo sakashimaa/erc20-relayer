@@ -1,0 +1,1 @@
+ALTER TABLE "transfers" ADD COLUMN "token_address" text NOT NULL;

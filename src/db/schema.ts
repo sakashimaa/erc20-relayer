@@ -9,7 +9,7 @@ import {
   index,
 } from 'drizzle-orm/pg-core';
 
-const transferStatusEnum = pgEnum('transfer_status', [
+export const transferStatusEnum = pgEnum('transfer_status', [
   'queued',
   'sent',
   'confirmed',
@@ -23,6 +23,7 @@ export const transfers = pgTable(
 
     idempotencyKey: varchar({ length: 255 }).unique().notNull(),
     toAddress: text().notNull(),
+    tokenAddress: text().notNull(),
     amount: numeric({ precision: 78, scale: 0 }).notNull(),
     status: transferStatusEnum().notNull().default('queued'),
 
@@ -34,3 +35,6 @@ export const transfers = pgTable(
   },
   (t) => [index('idx_transfers_status_created_at').on(t.status, t.createdAt)],
 );
+
+export type SelectTransfer = typeof transfers.$inferSelect;
+export type InsertTransfer = typeof transfers.$inferInsert;
