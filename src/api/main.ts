@@ -2,7 +2,7 @@ import http from 'http';
 import { app as expressApp } from './app.js';
 import logger from '../lib/logger.js';
 import { queryClient } from '../db/index.js';
-import env from '../config/env.js';
+import { env } from '../config/api-env.js';
 
 const server = http.createServer(expressApp);
 
