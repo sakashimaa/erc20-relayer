@@ -8,6 +8,7 @@ import {
   uuid,
   index,
   integer,
+  bigint,
 } from 'drizzle-orm/pg-core';
 
 export const transferStatusEnum = pgEnum('transfer_status', [
@@ -34,6 +35,8 @@ export const transfers = pgTable(
     lockedUntil: timestamp({ withTimezone: true }),
     lastError: text(),
 
+    nonce: integer().unique(),
+
     createdAt: timestamp({ withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp({ withTimezone: true })
       .defaultNow()
@@ -44,6 +47,21 @@ export const transfers = pgTable(
     index('idx_transfers_status_created_at').on(t.status, t.createdAt),
     index('idx_status_next_attempt_at').on(t.status, t.nextAttemptAt),
   ],
+);
+
+export const transferAttempts = pgTable(
+  'transfer_attempts',
+  {
+    id: bigint({ mode: 'bigint' }).primaryKey(),
+
+    transferId: uuid().references(() => transfers.id),
+    txHash: text().notNull().unique(),
+    rawTx: text().notNull(),
+    maxFeePerGas: numeric({ precision: 78, scale: 0 }).notNull(),
+    maxPriorityFeePerGas: numeric({ precision: 78, scale: 0 }).notNull(),
+    createdAt: timestamp({ withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [index('idx_transfer_attempts_transfer_created').on(t.transferId, t.createdAt)],
 );
 
 export type SelectTransfer = typeof transfers.$inferSelect;

@@ -4,7 +4,6 @@ import { transfers, type SelectTransfer } from '../../db/schema.js';
 import { ConflictError } from '../lib/http-error.js';
 import { IDEMPOTENCY_KEY_CONFLICT_CODE } from '../constants/error-code.js';
 import { env } from '../../config/api-env.js';
-import { WORKER_ATTEMPTS } from '../constants/worker.js';
 
 interface CreateTransferParams {
   to: string;
@@ -32,7 +31,6 @@ export const createTransfer = async ({
       amount,
       idempotencyKey,
       tokenAddress: env.TOKEN_ADDRESS,
-      attempts: WORKER_ATTEMPTS,
     })
     .onConflictDoNothing({ target: transfers.idempotencyKey })
     .returning();
