@@ -52,9 +52,11 @@ export const transfers = pgTable(
 export const transferAttempts = pgTable(
   'transfer_attempts',
   {
-    id: bigint({ mode: 'bigint' }).primaryKey(),
+    id: uuid().primaryKey().defaultRandom(),
 
-    transferId: uuid().references(() => transfers.id),
+    transferId: uuid()
+      .references(() => transfers.id)
+      .notNull(),
     txHash: text().notNull().unique(),
     rawTx: text().notNull(),
     maxFeePerGas: numeric({ precision: 78, scale: 0 }).notNull(),
