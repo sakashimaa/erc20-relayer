@@ -8,7 +8,6 @@ import {
   uuid,
   index,
   integer,
-  bigint,
 } from 'drizzle-orm/pg-core';
 
 export const transferStatusEnum = pgEnum('transfer_status', [

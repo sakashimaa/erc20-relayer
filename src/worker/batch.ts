@@ -2,11 +2,11 @@ import { sql } from 'drizzle-orm';
 import { db } from '../db/index.js';
 import type { SelectTransfer } from '../db/schema.js';
 
-export const LEASE_MS = 5000;
+export const LEASE_MS = 30_000;
 
-type ClaimedTransfer = Pick<
+export type ClaimedTransfer = Pick<
   SelectTransfer,
-  'id' | 'toAddress' | 'tokenAddress' | 'amount' | 'attempts'
+  'id' | 'toAddress' | 'tokenAddress' | 'amount' | 'attempts' | 'status'
 >;
 
 export const claimBatch = async (limit: number): Promise<ClaimedTransfer[]> => {
@@ -16,7 +16,7 @@ export const claimBatch = async (limit: number): Promise<ClaimedTransfer[]> => {
         locked_until = now() + make_interval(secs => ${LEASE_MS / 1000})
     WHERE id IN (
       SELECT id FROM transfers
-      WHERE status = 'queued'
+      WHERE status IN ('queued', 'signed', 'sent')
         AND next_attempt_at <= now()
         AND (locked_until IS NULL OR locked_until < now())
       ORDER BY next_attempt_at 
@@ -27,6 +27,7 @@ export const claimBatch = async (limit: number): Promise<ClaimedTransfer[]> => {
               to_address AS "toAddress",
               token_address AS "tokenAddress",
               amount,
-              attempts
+              attempts,
+              status
   `);
 };
