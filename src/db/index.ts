@@ -11,3 +11,7 @@ export const db = drizzle(queryClient, {
 });
 
 export { schema };
+
+export type DB = typeof db;
+export type Tx = Parameters<Parameters<DB['transaction']>[0]>[0];
+export type Executor = DB | Tx;

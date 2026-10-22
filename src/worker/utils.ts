@@ -5,6 +5,7 @@ import {
   getChainId,
   getCode,
   getTransactionCount,
+  getTransactionReceipt,
   sendRawTransaction,
 } from 'viem/actions';
 import type { ClaimedTransfer } from './batch.js';
@@ -15,16 +16,25 @@ import {
   formatEther,
   keccak256,
   NonceTooLowError,
+  TransactionNotFoundError,
+  TransactionReceiptNotFoundError,
   type Address,
   type Hex,
+  type TransactionReceipt,
 } from 'viem';
 import { account, publicClient } from './chain.js';
-import { sepolia } from 'viem/chains';
-import { db } from '../db/index.js';
-import { transferAttempts, transfers } from '../db/schema.js';
+import { sepolia, statusNetworkSepolia } from 'viem/chains';
+import { db, type Executor } from '../db/index.js';
+import {
+  transferAttempts,
+  transfers,
+  type InsertTransfer,
+  type TransferStatus,
+} from '../db/schema.js';
 import { and, desc, eq, sql } from 'drizzle-orm';
 import logger from '../lib/logger.js';
 import { CHECK_DELAY_MS } from './index.js';
+import type { PgUpdateSetSource } from 'drizzle-orm/pg-core';
 
 export class LeaseLostError extends Error {}
 
@@ -147,7 +157,102 @@ export const send = async ({ id, attempts }: ClaimedTransfer) => {
   if (updated.length <= 0) throw new LeaseLostError(id);
 };
 
-export const check = async (_row: ClaimedTransfer) => {};
+const guardedUpdate = async (
+  row: { id: string; attempts: number },
+  from: TransferStatus,
+  values: PgUpdateSetSource<typeof transfers>,
+  executor: Executor = db,
+): Promise<void> => {
+  const updated = await executor
+    .update(transfers)
+    .set({ lockedUntil: null, ...values })
+    .where(
+      and(
+        eq(transfers.id, row.id),
+        eq(transfers.status, from),
+        eq(transfers.attempts, row.attempts),
+      ),
+    )
+    .returning({ id: transfers.id });
+
+  if (updated.length === 0) {
+    throw new LeaseLostError(row.id);
+  }
+};
+
+const getReceiptOrNull = async (hash: `0x${string}`) => {
+  try {
+    return await getTransactionReceipt(publicClient, { hash });
+  } catch (err) {
+    if (err instanceof TransactionReceiptNotFoundError) {
+      return null;
+    }
+
+    throw err;
+  }
+};
+
+const applyReceipt = async (
+  { id, attempts }: { id: string; attempts: number },
+  receipt: TransactionReceipt,
+) => {
+  if (receipt.status === 'success') {
+    await guardedUpdate({ id, attempts }, 'sent', {
+      status: 'confirmed',
+    });
+  } else {
+    await guardedUpdate({ id, attempts }, 'sent', {
+      status: 'failed',
+      lastError: `reverted in block ${receipt.blockNumber}`,
+    });
+  }
+};
+
+export const check = async ({ id, nonce, attempts }: ClaimedTransfer) => {
+  if (nonce === null) throw new Error(`nonce is zero at ${id} transfer`);
+
+  const [lastAttempt] = await db
+    .select()
+    .from(transferAttempts)
+    .where(eq(transferAttempts.transferId, id))
+    .orderBy(desc(transferAttempts.createdAt))
+    .limit(1);
+
+  if (!lastAttempt) throw new Error(`no transfer attempts for ${id} transfer`);
+
+  const receipt = await getReceiptOrNull(lastAttempt.txHash as `0x${string}`);
+  if (receipt) {
+    await applyReceipt({ id, attempts }, receipt);
+
+    return;
+  }
+
+  const txNonce = await getTransactionCount(publicClient, {
+    address: account.address,
+    blockTag: 'latest',
+  });
+
+  if (txNonce <= nonce) {
+    await guardedUpdate({ id, attempts }, 'sent', {
+      nextAttemptAt: sql`now() + make_interval(secs => ${CHECK_DELAY_MS / 1000})`,
+    });
+
+    return;
+  }
+
+  const lastReceipt = await getReceiptOrNull(lastAttempt.txHash as `0x${string}`);
+  if (lastReceipt) {
+    await applyReceipt({ id, attempts }, lastReceipt);
+
+    return;
+  }
+
+  await guardedUpdate({ id, attempts }, 'sent', {
+    status: 'failed',
+    lastError: `nonce is consumed by another tx`,
+  });
+  logger.error({ id, nonce, attempts }, 'nonce is consumed by another tx');
+};
 
 export const preflight = async () => {
   const chainId = await getChainId(publicClient);

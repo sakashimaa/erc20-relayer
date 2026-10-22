@@ -67,3 +67,4 @@ export const transferAttempts = pgTable(
 
 export type SelectTransfer = typeof transfers.$inferSelect;
 export type InsertTransfer = typeof transfers.$inferInsert;
+export type TransferStatus = (typeof transfers.$inferSelect)['status'];

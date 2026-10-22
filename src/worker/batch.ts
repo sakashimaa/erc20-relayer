@@ -6,7 +6,7 @@ export const LEASE_MS = 30_000;
 
 export type ClaimedTransfer = Pick<
   SelectTransfer,
-  'id' | 'toAddress' | 'tokenAddress' | 'amount' | 'attempts' | 'status'
+  'id' | 'toAddress' | 'tokenAddress' | 'amount' | 'attempts' | 'status' | 'nonce'
 >;
 
 export const claimBatch = async (limit: number): Promise<ClaimedTransfer[]> => {
@@ -28,6 +28,7 @@ export const claimBatch = async (limit: number): Promise<ClaimedTransfer[]> => {
               token_address AS "tokenAddress",
               amount,
               attempts,
-              status
+              status,
+              nonce
   `);
 };
