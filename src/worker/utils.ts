@@ -4,6 +4,7 @@ import {
   getBalance,
   getChainId,
   getCode,
+  getTransaction,
   getTransactionCount,
   getTransactionReceipt,
   sendRawTransaction,
@@ -23,18 +24,14 @@ import {
   type TransactionReceipt,
 } from 'viem';
 import { account, publicClient } from './chain.js';
-import { sepolia, statusNetworkSepolia } from 'viem/chains';
+import { sepolia } from 'viem/chains';
 import { db, type Executor } from '../db/index.js';
-import {
-  transferAttempts,
-  transfers,
-  type InsertTransfer,
-  type TransferStatus,
-} from '../db/schema.js';
+import { transferAttempts, transfers, type TransferStatus } from '../db/schema.js';
 import { and, desc, eq, sql } from 'drizzle-orm';
 import logger from '../lib/logger.js';
 import { CHECK_DELAY_MS } from './index.js';
 import type { PgUpdateSetSource } from 'drizzle-orm/pg-core';
+import { rowId } from 'drizzle-orm/sqlite-core/expressions';
 
 export class LeaseLostError extends Error {}
 
@@ -192,6 +189,18 @@ const getReceiptOrNull = async (hash: `0x${string}`) => {
   }
 };
 
+const getTransactionOrNull = async (hash: `0x${string}`) => {
+  try {
+    return await getTransaction(publicClient, { hash });
+  } catch (err) {
+    if (err instanceof TransactionNotFoundError) {
+      return null;
+    }
+
+    throw err;
+  }
+};
+
 const applyReceipt = async (
   { id, attempts }: { id: string; attempts: number },
   receipt: TransactionReceipt,
@@ -209,7 +218,7 @@ const applyReceipt = async (
 };
 
 export const check = async ({ id, nonce, attempts }: ClaimedTransfer) => {
-  if (nonce === null) throw new Error(`nonce is zero at ${id} transfer`);
+  if (nonce === null) throw new Error(`sent transfer ${id} has no nonce`);
 
   const [lastAttempt] = await db
     .select()
@@ -233,6 +242,23 @@ export const check = async ({ id, nonce, attempts }: ClaimedTransfer) => {
   });
 
   if (txNonce <= nonce) {
+    const tx = await getTransactionOrNull(lastAttempt.txHash as `0x${string}`);
+
+    if (!tx) {
+      try {
+        logger.warn(
+          { id, txHash: lastAttempt.txHash },
+          'tx not found in mempool, rebroadcasting',
+        );
+
+        await sendRawTransaction(publicClient, {
+          serializedTransaction: lastAttempt.rawTx as Hex,
+        });
+      } catch (err) {
+        if (!isAlreadyKnown(err)) throw err;
+      }
+    }
+
     await guardedUpdate({ id, attempts }, 'sent', {
       nextAttemptAt: sql`now() + make_interval(secs => ${CHECK_DELAY_MS / 1000})`,
     });
