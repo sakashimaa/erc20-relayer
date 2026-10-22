@@ -31,7 +31,6 @@ import { and, desc, eq, sql } from 'drizzle-orm';
 import logger from '../lib/logger.js';
 import { CHECK_DELAY_MS } from './index.js';
 import type { PgUpdateSetSource } from 'drizzle-orm/pg-core';
-import { rowId } from 'drizzle-orm/sqlite-core/expressions';
 
 export class LeaseLostError extends Error {}
 
