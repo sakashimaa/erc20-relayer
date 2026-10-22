@@ -1,0 +1,1 @@
+ALTER TYPE "public"."transfer_status" ADD VALUE 'signed' BEFORE 'sent';
