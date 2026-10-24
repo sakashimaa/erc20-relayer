@@ -15,8 +15,10 @@ import {
   encodeFunctionData,
   erc20Abi,
   formatEther,
+  InsufficientFundsError,
   keccak256,
   NonceTooLowError,
+  parseTransaction,
   TransactionNotFoundError,
   TransactionReceiptNotFoundError,
   type Address,
@@ -26,10 +28,15 @@ import {
 import { account, publicClient } from './chain.js';
 import { sepolia } from 'viem/chains';
 import { db, type Executor } from '../db/index.js';
-import { transferAttempts, transfers, type TransferStatus } from '../db/schema.js';
+import {
+  transferAttempts,
+  transfers,
+  type SelectTransferAttempts,
+  type TransferStatus,
+} from '../db/schema.js';
 import { and, desc, eq, sql } from 'drizzle-orm';
 import logger from '../lib/logger.js';
-import { CHECK_DELAY_MS } from './index.js';
+import { BUMP_AFTER_MS, CHECK_DELAY_MS } from './index.js';
 import type { PgUpdateSetSource } from 'drizzle-orm/pg-core';
 
 export class LeaseLostError extends Error {}
@@ -48,6 +55,9 @@ const assertContract = async (token: Address) => {
 const isAlreadyKnown = (e: unknown) =>
   e instanceof BaseError &&
   NonceTooLowError.nodeMessage.test((e as { details?: string }).details ?? '');
+
+const isUnderpriced = (e: unknown) =>
+  e instanceof BaseError && e.message.includes('replacement transaction underpriced');
 
 export const prepare = async ({
   id,
@@ -216,45 +226,139 @@ const applyReceipt = async (
   }
 };
 
+const bump = (x: bigint) => (x * 9n + 7n) / 8n;
+const max = (x: bigint, y: bigint) => (x > y ? x : y);
+
+const findReceipt = async (allAttempts: SelectTransferAttempts[]) => {
+  for (const attempt of allAttempts) {
+    const receipt = await getReceiptOrNull(attempt.txHash as `0x${string}`);
+    if (receipt) return receipt;
+  }
+
+  return null;
+};
+
 export const check = async ({ id, nonce, attempts }: ClaimedTransfer) => {
   if (nonce === null) throw new Error(`sent transfer ${id} has no nonce`);
 
-  const [lastAttempt] = await db
+  const allAttempts = await db
     .select()
     .from(transferAttempts)
     .where(eq(transferAttempts.transferId, id))
-    .orderBy(desc(transferAttempts.createdAt))
-    .limit(1);
+    .orderBy(desc(transferAttempts.createdAt));
 
-  if (!lastAttempt) throw new Error(`no transfer attempts for ${id} transfer`);
-
-  const receipt = await getReceiptOrNull(lastAttempt.txHash as `0x${string}`);
-  if (receipt) {
-    await applyReceipt({ id, attempts }, receipt);
-
-    return;
-  }
+  if (allAttempts.length === 0)
+    throw new Error(`no transfer attempts for ${id} transfer`);
 
   const txNonce = await getTransactionCount(publicClient, {
     address: account.address,
     blockTag: 'latest',
   });
 
-  if (txNonce <= nonce) {
-    const tx = await getTransactionOrNull(lastAttempt.txHash as `0x${string}`);
+  const receipt = await findReceipt(allAttempts);
+  if (receipt) {
+    await applyReceipt({ id, attempts }, receipt);
 
-    if (!tx) {
-      try {
-        logger.warn(
-          { id, txHash: lastAttempt.txHash },
-          'tx not found in mempool, rebroadcasting',
+    return;
+  }
+
+  const lastAttempt = allAttempts[0];
+  if (!lastAttempt) throw new Error(`no attempts for transfer found`);
+  if (txNonce <= nonce) {
+    if (new Date().getTime() - lastAttempt.createdAt.getTime() >= BUMP_AFTER_MS) {
+      const current = await estimateFeesPerGas(publicClient);
+
+      const newMaxFeePerGas = max(
+        bump(BigInt(lastAttempt.maxFeePerGas)),
+        current.maxFeePerGas,
+      );
+      const newMaxPriorityFeePerGas = max(
+        bump(BigInt(lastAttempt.maxPriorityFeePerGas)),
+        current.maxPriorityFeePerGas,
+      );
+
+      const oldTxData = parseTransaction(lastAttempt.rawTx as Hex);
+
+      const raw = await account.signTransaction({
+        type: 'eip1559',
+        chainId: sepolia.id,
+        to: oldTxData.to,
+        data: oldTxData.data,
+        value: 0n,
+        nonce,
+        gas: oldTxData.gas,
+        maxFeePerGas: newMaxFeePerGas,
+        maxPriorityFeePerGas: newMaxPriorityFeePerGas,
+      });
+
+      const txHash = keccak256(raw);
+
+      await db.transaction(async (tx) => {
+        await guardedUpdate(
+          { id, attempts },
+          'sent',
+          { nextAttemptAt: sql`now() + make_interval(secs => ${CHECK_DELAY_MS / 1000})` },
+          tx,
         );
 
-        await sendRawTransaction(publicClient, {
-          serializedTransaction: lastAttempt.rawTx as Hex,
+        await tx.insert(transferAttempts).values({
+          transferId: id,
+          txHash,
+          rawTx: raw,
+          maxFeePerGas: newMaxFeePerGas.toString(),
+          maxPriorityFeePerGas: newMaxPriorityFeePerGas.toString(),
         });
+      });
+
+      try {
+        await sendRawTransaction(publicClient, { serializedTransaction: raw });
       } catch (err) {
-        if (!isAlreadyKnown(err)) throw err;
+        if (isUnderpriced(err) || err instanceof InsufficientFundsError) {
+          await db.delete(transferAttempts).where(eq(transferAttempts.txHash, txHash));
+        }
+
+        if (isUnderpriced(err)) {
+          logger.info(
+            { id, txHash, newMaxFeePerGas, newMaxPriorityFeePerGas },
+            'bump was insufficient',
+          );
+
+          return;
+        }
+
+        if (err instanceof InsufficientFundsError) {
+          logger.error(
+            { id, txHash, newMaxFeePerGas, newMaxPriorityFeePerGas },
+            'insuficcient wallet balance to bump gas',
+          );
+
+          return;
+        }
+
+        if (isAlreadyKnown(err)) {
+          logger.warn({ id, txHash }, 'transaction already in blockchain');
+
+          return;
+        }
+
+        throw err;
+      }
+    } else {
+      const tx = await getTransactionOrNull(lastAttempt.txHash as `0x${string}`);
+
+      if (!tx) {
+        try {
+          logger.warn(
+            { id, txHash: lastAttempt.txHash },
+            'tx not found in mempool, rebroadcasting',
+          );
+
+          await sendRawTransaction(publicClient, {
+            serializedTransaction: lastAttempt.rawTx as Hex,
+          });
+        } catch (err) {
+          if (!isAlreadyKnown(err)) throw err;
+        }
       }
     }
 
@@ -265,7 +369,7 @@ export const check = async ({ id, nonce, attempts }: ClaimedTransfer) => {
     return;
   }
 
-  const lastReceipt = await getReceiptOrNull(lastAttempt.txHash as `0x${string}`);
+  const lastReceipt = await findReceipt(allAttempts);
   if (lastReceipt) {
     await applyReceipt({ id, attempts }, lastReceipt);
 
