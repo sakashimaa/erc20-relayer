@@ -11,7 +11,7 @@ import { classify } from './errors.js';
 export const BATCH_SIZE = 1;
 export const POLL_MS = 1000;
 export const CHECK_DELAY_MS = 12_000; /* one block */
-export const BUMP_AFTER_MS = 1000 * 30; /* 3 mins */
+export const BUMP_AFTER_MS = 1000 * 180; /* 3 mins */
 
 const BASE_MS = 1000;
 const MAX_MS = 30_000; /* 30 secs */
